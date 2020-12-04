@@ -1,6 +1,7 @@
 
 SOURCES += \
     $$PWD/imgui/imgui_draw.cpp \
+    $$PWD/imgui/imgui_widgets.cpp \
     $$PWD/imgui/imgui.cpp \
     $$PWD/imgui/imgui_demo.cpp \
     $$PWD/ImGuiRenderer.cpp \

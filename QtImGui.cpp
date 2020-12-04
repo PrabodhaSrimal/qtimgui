@@ -13,24 +13,27 @@ namespace {
 
 class QWidgetWindowWrapper : public WindowWrapper {
 public:
-    QWidgetWindowWrapper(QWidget *w) : w(w) {}
+    QWidgetWindowWrapper(QWidget *w) : widget(w) {}
     void installEventFilter(QObject *object) override {
-        return w->installEventFilter(object);
+        return widget->installEventFilter(object);
     }
     QSize size() const override {
-        return w->size();
+        return widget->size();
     }
     qreal devicePixelRatio() const override {
-        return w->devicePixelRatioF();
+        return widget->devicePixelRatioF();
     }
     bool isActive() const override {
-        return w->isActiveWindow();
+        return widget->isActiveWindow();
+    }
+    void setFocus(Qt::FocusReason focusReason) override {
+        widget->setFocus(focusReason);
     }
     QPoint mapFromGlobal(const QPoint &p) const override {
-        return w->mapFromGlobal(p);
+        return widget->mapFromGlobal(p);
     }
 private:
-    QWidget *w;
+    QWidget *widget;
 };
 
 }
@@ -45,24 +48,27 @@ namespace {
 
 class QWindowWindowWrapper : public WindowWrapper {
 public:
-    QWindowWindowWrapper(QWindow *w) : w(w) {}
+    QWindowWindowWrapper(QWindow *w) : window(w) {}
     void installEventFilter(QObject *object) override {
-        return w->installEventFilter(object);
+        return window->installEventFilter(object);
     }
     QSize size() const override {
-        return w->size();
+        return window->size();
     }
     qreal devicePixelRatio() const override {
-        return w->devicePixelRatio();
+        return window->devicePixelRatio();
     }
     bool isActive() const override {
-        return w->isActive();
+        return window->isActive();
+    }
+    void setFocus(Qt::FocusReason focusReason) override {
+        ((QWidget*)window)->setFocus(focusReason);
     }
     QPoint mapFromGlobal(const QPoint &p) const override {
-        return w->mapFromGlobal(p);
+        return window->mapFromGlobal(p);
     }
 private:
-    QWindow *w;
+    QWindow *window;
 };
 
 }

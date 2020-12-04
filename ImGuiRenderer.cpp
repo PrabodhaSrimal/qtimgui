@@ -23,6 +23,7 @@ QHash<int, ImGuiKey> keyMap = {
     { Qt::Key_Delete, ImGuiKey_Delete },
     { Qt::Key_Backspace, ImGuiKey_Backspace },
     { Qt::Key_Enter, ImGuiKey_Enter },
+    { Qt::Key_Return, ImGuiKey_Enter },
     { Qt::Key_Escape, ImGuiKey_Escape },
     { Qt::Key_A, ImGuiKey_A },
     { Qt::Key_C, ImGuiKey_C },
@@ -30,6 +31,16 @@ QHash<int, ImGuiKey> keyMap = {
     { Qt::Key_X, ImGuiKey_X },
     { Qt::Key_Y, ImGuiKey_Y },
     { Qt::Key_Z, ImGuiKey_Z },
+    { Qt::Key_0, ImGuiKey_0 },
+    { Qt::Key_1, ImGuiKey_1 },
+    { Qt::Key_2, ImGuiKey_2 },
+    { Qt::Key_3, ImGuiKey_3 },
+    { Qt::Key_4, ImGuiKey_4 },
+    { Qt::Key_5, ImGuiKey_5 },
+    { Qt::Key_6, ImGuiKey_6 },
+    { Qt::Key_7, ImGuiKey_7 },
+    { Qt::Key_8, ImGuiKey_8 },
+    { Qt::Key_9, ImGuiKey_9 }
 };
 
 QByteArray g_currentClipboardText;
@@ -61,6 +72,8 @@ void ImGuiRenderer::initialize(WindowWrapper *window) {
     };
 
     window->installEventFilter(this);
+
+    g_ElapsedTimer.start();
 }
 
 void ImGuiRenderer::renderDrawList(ImDrawData *draw_data)
@@ -169,9 +182,15 @@ bool ImGuiRenderer::createFontsTexture()
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);   // Load as RGBA 32-bits (75% of the memory is wasted, but default font is so small) because it is more likely to be compatible with user's existing shaders. If your ImTextureId represent a higher-level concept than just a GL texture id, consider calling GetTexDataAsAlpha8() instead to save on GPU memory.
 
-    // Upload texture to graphics system
     GLint last_texture;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
+
+    if (g_FontTexture)
+    {
+        glDeleteTextures(1, &g_FontTexture);
+    }
+
+    // Upload texture to graphics system
     glGenTextures(1, &g_FontTexture);
     glBindTexture(GL_TEXTURE_2D, g_FontTexture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -180,6 +199,7 @@ bool ImGuiRenderer::createFontsTexture()
 
     // Store our identifier
     io.Fonts->TexID = (void *)(intptr_t)g_FontTexture;
+    g_FontsDirty = false;
 
     // Restore state
     glBindTexture(GL_TEXTURE_2D, last_texture);
@@ -254,7 +274,7 @@ bool ImGuiRenderer::createDeviceObjects()
     glVertexAttribPointer(g_AttribLocationColor, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ImDrawVert), (GLvoid*)OFFSETOF(ImDrawVert, col));
 #undef OFFSETOF
 
-    createFontsTexture();
+    g_Initialised = true;
 
     // Restore modified GL state
     glBindTexture(GL_TEXTURE_2D, last_texture);
@@ -266,8 +286,14 @@ bool ImGuiRenderer::createDeviceObjects()
 
 void ImGuiRenderer::newFrame()
 {
-    if (!g_FontTexture)
+    if (!g_Initialised)
+    {
         createDeviceObjects();
+    }
+    if (g_FontsDirty)
+    {
+        createFontsTexture();
+    }
 
     ImGuiIO& io = ImGui::GetIO();
 
@@ -276,21 +302,13 @@ void ImGuiRenderer::newFrame()
     io.DisplayFramebufferScale = ImVec2(m_window->devicePixelRatio(), m_window->devicePixelRatio());
 
     // Setup time step
-    double current_time =  QDateTime::currentMSecsSinceEpoch() / double(1000);
-    io.DeltaTime = g_Time > 0.0 ? (float)(current_time - g_Time) : (float)(1.0f/60.0f);
-    g_Time = current_time;
+    io.DeltaTime = (float)(g_ElapsedTimer.restart() / 1000.0F);
 
     // Setup inputs
     // (we already got mouse wheel, keyboard keys & characters from glfw callbacks polled in glfwPollEvents())
-    if (m_window->isActive())
-    {
-        auto pos = m_window->mapFromGlobal(QCursor::pos());
-        io.MousePos = ImVec2(pos.x(), pos.y());   // Mouse position in screen coordinates (set to -1,-1 if no mouse / on another screen, etc.)
-    }
-    else
-    {
-        io.MousePos = ImVec2(-1,-1);
-    }
+    // SP-902: we would like to get mouse position even the window is not active // if (m_window->isActive())
+    auto pos = m_window->mapFromGlobal(QCursor::pos());
+    io.MousePos = ImVec2(pos.x(), pos.y());   // Mouse position in screen coordinates (set to -1,-1 if no mouse / on another screen, etc.)
 
     for (int i = 0; i < 3; i++)
     {
@@ -301,6 +319,43 @@ void ImGuiRenderer::newFrame()
     io.MouseWheel = g_MouseWheel;
     g_MouseWheelH = 0;
     g_MouseWheel = 0;
+
+    if (g_TabKeyPressed)
+    {
+        // handle tab key release events and make sure we still focus on the same View.
+        io.KeysDown[keyMap[Qt::Key_Tab]] = false;
+        m_window->setFocus(Qt::FocusReason::TabFocusReason);
+        g_TabKeyPressed = false;
+    }
+
+    for (auto event : g_KeyEvents)
+    {
+        if (keyMap.contains(event.key))
+        {
+            io.KeysDown[keyMap[event.key]] = event.type == QEvent::KeyPress;
+            g_TabKeyPressed = (event.key == Qt::Key_Tab);
+        }
+        if (event.type == QEvent::KeyPress && event.inputCharacter != 0)
+        {
+            io.AddInputCharacter(event.inputCharacter);
+        }
+    }
+
+    // SP-902: we would like to get key modifier even the window is not active
+    Qt::KeyboardModifiers modifier = QGuiApplication::queryKeyboardModifiers();
+#ifdef Q_OS_MAC
+    io.KeyCtrl = modifier & Qt::MetaModifier;
+    io.KeyShift = modifier & Qt::ShiftModifier;
+    io.KeyAlt = modifier & Qt::AltModifier;
+    io.KeySuper = modifier & Qt::ControlModifier;
+#else
+    io.KeyCtrl = modifier & Qt::ControlModifier;
+    io.KeyShift = modifier & Qt::ShiftModifier;
+    io.KeyAlt = modifier & Qt::AltModifier;
+    io.KeySuper = modifier & Qt::MetaModifier;
+#endif
+
+    g_KeyEvents.clear();
 
     // Hide OS mouse cursor if ImGui is drawing it
     // glfwSetInputMode(g_Window, GLFW_CURSOR, io.MouseDrawCursor ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_NORMAL);
@@ -318,36 +373,49 @@ void ImGuiRenderer::onMousePressedChange(QMouseEvent *event)
 
 void ImGuiRenderer::onWheel(QWheelEvent *event)
 {
-    // 5 lines per unit
-    g_MouseWheelH += event->pixelDelta().x() / (ImGui::GetTextLineHeight());
-    g_MouseWheel += event->pixelDelta().y() / (5.0 * ImGui::GetTextLineHeight());
+    // Handle horizontal component
+    if (event->angleDelta().x() == 0.0)
+    {
+        g_MouseWheelH += event->pixelDelta().x() / (ImGui::GetTextLineHeight());
+    }
+    else
+    {
+        // Magic number of 120 comes from Qt doc on QWheelEvent::pixelDelta()
+        g_MouseWheelH += event->angleDelta().x() / 120;
+    }
+
+    // Handle vertical component
+    if (event->angleDelta().y() == 0.0)
+    {
+        // 5 lines per unit
+        g_MouseWheel += event->pixelDelta().y() / (5.0 * ImGui::GetTextLineHeight());
+    }
+    else
+    {
+        // Magic number of 120 comes from Qt doc on QWheelEvent::pixelDelta()
+        g_MouseWheel += event->angleDelta().y() / 120;
+    }
 }
 
 void ImGuiRenderer::onKeyPressRelease(QKeyEvent *event)
 {
-    ImGuiIO& io = ImGui::GetIO();
-    if (keyMap.contains(event->key())) {
-        io.KeysDown[keyMap[event->key()]] = event->type() == QEvent::KeyPress;
-    }
-
-    if (event->type() == QEvent::KeyPress) {
+    ushort character = 0;
+    if (event->type() == QEvent::KeyPress)
+    {
         QString text = event->text();
         if (text.size() == 1) {
-            io.AddInputCharacter(text.at(0).unicode());
+            character = text.at(0).unicode();
         }
     }
+    else if (event->key() == Qt::Key_Tab) // event->type() == QEvent::KeyRelease
+    {
+        // When we have multiple ImGuiRenderers (Views) active, tab can make current view out of focus.
+        // Because tab key press happens in one View and released in another View.
+        // So we ignore tab key release events here and manually inject tab key release event later.
+        return;
+    }
 
-#ifdef Q_OS_MAC
-    io.KeyCtrl = event->modifiers() & Qt::MetaModifier;
-    io.KeyShift = event->modifiers() & Qt::ShiftModifier;
-    io.KeyAlt = event->modifiers() & Qt::AltModifier;
-    io.KeySuper = event->modifiers() & Qt::ControlModifier; // Comamnd key
-#else
-    io.KeyCtrl = event->modifiers() & Qt::ControlModifier;
-    io.KeyShift = event->modifiers() & Qt::ShiftModifier;
-    io.KeyAlt = event->modifiers() & Qt::AltModifier;
-    io.KeySuper = event->modifiers() & Qt::MetaModifier;
-#endif
+    g_KeyEvents.push_back({event->type(), event->key(), character, event->modifiers()});
 }
 
 bool ImGuiRenderer::eventFilter(QObject *watched, QEvent *event)
@@ -370,9 +438,11 @@ bool ImGuiRenderer::eventFilter(QObject *watched, QEvent *event)
     return QObject::eventFilter(watched, event);
 }
 
-ImGuiRenderer* ImGuiRenderer::instance() {
+ImGuiRenderer* ImGuiRenderer::instance(ImGuiRenderer* replace_instance, bool create) {
     static ImGuiRenderer* instance = nullptr;
-    if (!instance) {
+	if (replace_instance) {
+		instance = replace_instance;
+	} else if (create || (!instance)) {
         instance = new ImGuiRenderer();
     }
     return instance;
