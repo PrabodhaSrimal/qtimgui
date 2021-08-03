@@ -81,4 +81,8 @@ void newFrame() {
     ImGuiRenderer::instance()->newFrame();
 }
 
+void render() {
+    ImGuiRenderer::instance()->render();
+}
+
 }

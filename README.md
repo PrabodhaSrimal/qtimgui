@@ -10,6 +10,7 @@ It enables ImGui to run in QOpenGLWidget / QOpenGLWindow.
 
 * Add QtImGui sources and headers to your project
     * If you are using git submodule, run `git submodule update --init --recursive` to ensure that the inner submodule is initialized as well.
+    * patch ImGui using `imgui.patch`
 * Add `include(path/to/qtimgui.pri)` to youre `.pro` file
 * Subclass `QOpenGLWindow` or `QOpenGLWidget` and:
 

@@ -1,0 +1,21 @@
+diff --git a/imgui.h b/imgui.h
+index 06a610d4..895d061d 100644
+--- a/imgui.h
++++ b/imgui.h
+@@ -1333,6 +1333,16 @@ enum ImGuiKey_
+     ImGuiKey_X,                 // for text edit CTRL+X: cut
+     ImGuiKey_Y,                 // for text edit CTRL+Y: redo
+     ImGuiKey_Z,                 // for text edit CTRL+Z: undo
++    ImGuiKey_0,
++    ImGuiKey_1,
++    ImGuiKey_2,
++    ImGuiKey_3,
++    ImGuiKey_4,
++    ImGuiKey_5,
++    ImGuiKey_6,
++    ImGuiKey_7,
++    ImGuiKey_8,
++    ImGuiKey_9,
+     ImGuiKey_COUNT
+ };
+ 

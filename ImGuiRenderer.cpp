@@ -54,13 +54,15 @@ void ImGuiRenderer::initialize(WindowWrapper *window) {
     ImGui::CreateContext();
 
     ImGuiIO &io = ImGui::GetIO();
+
+    io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;       // We can honor GetMouseCursor() values (optional)
+    io.BackendFlags |= ImGuiBackendFlags_HasSetMousePos;        // We can honor io.WantSetMousePos requests (optional, rarely used)
+    io.BackendPlatformName = "imgui_impl_qt";
+
     for (ImGuiKey key : keyMap.values()) {
         io.KeyMap[key] = key;
     }
 
-    io.RenderDrawListsFn = [](ImDrawData *drawData) {
-        instance()->renderDrawList(drawData);
-    };
     io.SetClipboardTextFn = [](void *user_data, const char *text) {
         Q_UNUSED(user_data);
         QGuiApplication::clipboard()->setText(text);
@@ -362,6 +364,12 @@ void ImGuiRenderer::newFrame()
 
     // Start the frame
     ImGui::NewFrame();
+}
+
+void ImGuiRenderer::render()
+{
+    ImGui::Render();
+    renderDrawList(ImGui::GetDrawData());
 }
 
 void ImGuiRenderer::onMousePressedChange(QMouseEvent *event)
