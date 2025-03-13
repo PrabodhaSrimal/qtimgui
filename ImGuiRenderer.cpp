@@ -6,42 +6,11 @@
 #include <QCursor>
 #include <QDebug>
 
+#include "QtKeyMappings.h"
+
 namespace QtImGui {
 
 namespace {
-
-QHash<int, ImGuiKey> keyMap = {
-    { Qt::Key_Tab, ImGuiKey_Tab },
-    { Qt::Key_Left, ImGuiKey_LeftArrow },
-    { Qt::Key_Right, ImGuiKey_RightArrow },
-    { Qt::Key_Up, ImGuiKey_UpArrow },
-    { Qt::Key_Down, ImGuiKey_DownArrow },
-    { Qt::Key_PageUp, ImGuiKey_PageUp },
-    { Qt::Key_PageDown, ImGuiKey_PageDown },
-    { Qt::Key_Home, ImGuiKey_Home },
-    { Qt::Key_End, ImGuiKey_End },
-    { Qt::Key_Delete, ImGuiKey_Delete },
-    { Qt::Key_Backspace, ImGuiKey_Backspace },
-    { Qt::Key_Enter, ImGuiKey_Enter },
-    { Qt::Key_Return, ImGuiKey_Enter },
-    { Qt::Key_Escape, ImGuiKey_Escape },
-    { Qt::Key_A, ImGuiKey_A },
-    { Qt::Key_C, ImGuiKey_C },
-    { Qt::Key_V, ImGuiKey_V },
-    { Qt::Key_X, ImGuiKey_X },
-    { Qt::Key_Y, ImGuiKey_Y },
-    { Qt::Key_Z, ImGuiKey_Z },
-    { Qt::Key_0, ImGuiKey_0 },
-    { Qt::Key_1, ImGuiKey_1 },
-    { Qt::Key_2, ImGuiKey_2 },
-    { Qt::Key_3, ImGuiKey_3 },
-    { Qt::Key_4, ImGuiKey_4 },
-    { Qt::Key_5, ImGuiKey_5 },
-    { Qt::Key_6, ImGuiKey_6 },
-    { Qt::Key_7, ImGuiKey_7 },
-    { Qt::Key_8, ImGuiKey_8 },
-    { Qt::Key_9, ImGuiKey_9 }
-};
 
 QByteArray g_currentClipboardText;
 
@@ -58,10 +27,6 @@ void ImGuiRenderer::initialize(WindowWrapper *window) {
     io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;       // We can honor GetMouseCursor() values (optional)
     io.BackendFlags |= ImGuiBackendFlags_HasSetMousePos;        // We can honor io.WantSetMousePos requests (optional, rarely used)
     io.BackendPlatformName = "imgui_impl_qt";
-
-    for (ImGuiKey key : keyMap.values()) {
-        io.KeyMap[key] = key;
-    }
 
     io.SetClipboardTextFn = [](void *user_data, const char *text) {
         Q_UNUSED(user_data);
@@ -200,7 +165,7 @@ bool ImGuiRenderer::createFontsTexture()
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 
     // Store our identifier
-    io.Fonts->TexID = (void *)(intptr_t)g_FontTexture;
+    io.Fonts->TexID = (ImTextureID)g_FontTexture;
     g_FontsDirty = false;
 
     // Restore state
@@ -227,9 +192,9 @@ bool ImGuiRenderer::createDeviceObjects()
         "out vec4 Frag_Color;\n"
         "void main()\n"
         "{\n"
-        "	Frag_UV = UV;\n"
-        "	Frag_Color = Color;\n"
-        "	gl_Position = ProjMtx * vec4(Position.xy,0,1);\n"
+        "   Frag_UV = UV;\n"
+        "   Frag_Color = Color;\n"
+        "   gl_Position = ProjMtx * vec4(Position.xy,0,1);\n"
         "}\n";
 
     const GLchar* fragment_shader =
@@ -240,19 +205,25 @@ bool ImGuiRenderer::createDeviceObjects()
         "out vec4 Out_Color;\n"
         "void main()\n"
         "{\n"
-        "	Out_Color = Frag_Color * texture( Texture, Frag_UV.st);\n"
+        "   Out_Color = Frag_Color * texture( Texture, Frag_UV.st);\n"
         "}\n";
 
     g_ShaderHandle = glCreateProgram();
-    g_VertHandle = glCreateShader(GL_VERTEX_SHADER);
-    g_FragHandle = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(g_VertHandle, 1, &vertex_shader, 0);
-    glShaderSource(g_FragHandle, 1, &fragment_shader, 0);
-    glCompileShader(g_VertHandle);
-    glCompileShader(g_FragHandle);
-    glAttachShader(g_ShaderHandle, g_VertHandle);
-    glAttachShader(g_ShaderHandle, g_FragHandle);
+    const GLuint vertHandle = glCreateShader(GL_VERTEX_SHADER);
+    const GLuint fragHandle = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(vertHandle, 1, &vertex_shader, 0);
+    glShaderSource(fragHandle, 1, &fragment_shader, 0);
+    glCompileShader(vertHandle);
+    glCompileShader(fragHandle);
+    glAttachShader(g_ShaderHandle, vertHandle);
+    glAttachShader(g_ShaderHandle, fragHandle);
     glLinkProgram(g_ShaderHandle);
+
+    // now that our program is linked, we can delete our shaders
+    glDetachShader(g_ShaderHandle, vertHandle);
+    glDetachShader(g_ShaderHandle, fragHandle);
+    glDeleteShader(vertHandle);
+    glDeleteShader(fragHandle);
 
     g_AttribLocationTex = glGetUniformLocation(g_ShaderHandle, "Texture");
     g_AttribLocationProjMtx = glGetUniformLocation(g_ShaderHandle, "ProjMtx");
@@ -310,31 +281,41 @@ void ImGuiRenderer::newFrame()
     // (we already got mouse wheel, keyboard keys & characters from glfw callbacks polled in glfwPollEvents())
     // SP-902: we would like to get mouse position even the window is not active // if (m_window->isActive())
     auto pos = m_window->mapFromGlobal(QCursor::pos());
-    io.MousePos = ImVec2(pos.x(), pos.y());   // Mouse position in screen coordinates (set to -1,-1 if no mouse / on another screen, etc.)
+    io.AddMousePosEvent(pos.x(), pos.y());
 
     for (int i = 0; i < 3; i++)
     {
-        io.MouseDown[i] = g_MousePressed[i];
+        if (g_MousePressed[i].size() > 1) // previous frame's mouse state can be discarded - always keep one state around so you can assume previous frame's state still holds
+        {
+            g_MousePressed[i].pop_front();
+        }
+        io.AddMouseButtonEvent(i, g_MousePressed[i].front());
     }
 
-    io.MouseWheelH = g_MouseWheelH;
-    io.MouseWheel = g_MouseWheel;
+    io.AddMouseWheelEvent(g_MouseWheelH, g_MouseWheel);
     g_MouseWheelH = 0;
     g_MouseWheel = 0;
 
     if (g_TabKeyPressed)
     {
         // handle tab key release events and make sure we still focus on the same View.
-        io.KeysDown[keyMap[Qt::Key_Tab]] = false;
+        io.AddKeyEvent(ImGuiKey_Tab, false);
         m_window->setFocus(Qt::FocusReason::TabFocusReason);
         g_TabKeyPressed = false;
     }
 
-    for (auto event : g_KeyEvents)
+    // g_KeyEvents buffer can be both written and read at same time because it is written based on
+    // QT asynchronous event callbacks. We use a double-buffering technique to avoid conflicting
+    // writing, reading and clearing the same buffer. An atomic index is used to correctly separate
+    // the buffers when reading and writing and swap them at each frame.
+    const bool currentIndex = g_KeyEventsBufferIndex.load();
+    g_KeyEventsBufferIndex.store(!currentIndex);
+    for (QtImGui::KeyEvent const &event : g_KeyEvents[(int)currentIndex])
     {
-        if (keyMap.contains(event.key))
+        const auto imguiKey = QtKeyToImGuiKey(event.key);
+        if (imguiKey != ImGuiKey_None)
         {
-            io.KeysDown[keyMap[event.key]] = event.type == QEvent::KeyPress;
+            io.AddKeyEvent(imguiKey, event.type == QEvent::KeyPress);
             g_TabKeyPressed = (event.key == Qt::Key_Tab);
         }
         if (event.type == QEvent::KeyPress && event.inputCharacter != 0)
@@ -342,28 +323,38 @@ void ImGuiRenderer::newFrame()
             io.AddInputCharacter(event.inputCharacter);
         }
     }
-
-    // SP-902: we would like to get key modifier even the window is not active
-    Qt::KeyboardModifiers modifier = QGuiApplication::queryKeyboardModifiers();
-#ifdef Q_OS_MAC
-    io.KeyCtrl = modifier & Qt::MetaModifier;
-    io.KeyShift = modifier & Qt::ShiftModifier;
-    io.KeyAlt = modifier & Qt::AltModifier;
-    io.KeySuper = modifier & Qt::ControlModifier;
-#else
-    io.KeyCtrl = modifier & Qt::ControlModifier;
-    io.KeyShift = modifier & Qt::ShiftModifier;
-    io.KeyAlt = modifier & Qt::AltModifier;
-    io.KeySuper = modifier & Qt::MetaModifier;
-#endif
-
-    g_KeyEvents.clear();
+    g_KeyEvents[(int)currentIndex].clear();
 
     // Hide OS mouse cursor if ImGui is drawing it
     // glfwSetInputMode(g_Window, GLFW_CURSOR, io.MouseDrawCursor ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_NORMAL);
 
+    // Check for a mismatch between imgui and Qt modifier keys. This can occur when a modifier is held while a new floating window is opened.
+    Qt::KeyboardModifiers modifier = QGuiApplication::queryKeyboardModifiers();
+    if (ImGui::IsKeyDown(ImGuiKey_ModCtrl) && !(modifier & Qt::ControlModifier))
+    {
+        io.AddKeyEvent(ImGuiKey_ModCtrl, false);
+    }
+    if (ImGui::IsKeyDown(ImGuiKey_ModShift) && !(modifier & Qt::ShiftModifier))
+    {
+        io.AddKeyEvent(ImGuiKey_ModShift, false);
+    }
+    if (ImGui::IsKeyDown(ImGuiKey_ModAlt) && !(modifier & Qt::AltModifier))
+    {
+        io.AddKeyEvent(ImGuiKey_ModAlt, false);
+    }
+    if (ImGui::IsKeyDown(ImGuiKey_ModSuper) && !(modifier & Qt::MetaModifier))
+    {
+        io.AddKeyEvent(ImGuiKey_ModSuper, false);
+    }
+
     // Start the frame
     ImGui::NewFrame();
+
+    // ImGui suppresses modifier keys except for the active window, so we explicitly reactivate them after the frame starts
+    io.KeyCtrl = modifier & Qt::ControlModifier;
+    io.KeyShift = modifier & Qt::ShiftModifier;
+    io.KeyAlt = modifier & Qt::AltModifier;
+    io.KeySuper = modifier & Qt::MetaModifier;
 }
 
 void ImGuiRenderer::render()
@@ -374,9 +365,16 @@ void ImGuiRenderer::render()
 
 void ImGuiRenderer::onMousePressedChange(QMouseEvent *event)
 {
-    g_MousePressed[0] = event->buttons() & Qt::LeftButton;
-    g_MousePressed[1] = event->buttons() & Qt::RightButton;
-    g_MousePressed[2] = event->buttons() & Qt::MiddleButton;
+    bool currentButtons[3] =
+    {
+        (bool)(event->buttons() & Qt::LeftButton),
+        (bool)(event->buttons() & Qt::RightButton),
+        (bool)(event->buttons() & Qt::MiddleButton)
+    };
+    for (int i = 0; i < 3; i++)
+    {
+        g_MousePressed[i].push_back(currentButtons[i]);
+    }
 }
 
 void ImGuiRenderer::onWheel(QWheelEvent *event)
@@ -422,8 +420,8 @@ void ImGuiRenderer::onKeyPressRelease(QKeyEvent *event)
         // So we ignore tab key release events here and manually inject tab key release event later.
         return;
     }
-
-    g_KeyEvents.push_back({event->type(), event->key(), character, event->modifiers()});
+    const bool currentIndex = g_KeyEventsBufferIndex.load();
+    g_KeyEvents[(int)currentIndex].push_back({event->type(), event->key(), character, event->modifiers()});
 }
 
 bool ImGuiRenderer::eventFilter(QObject *watched, QEvent *event)
@@ -431,6 +429,7 @@ bool ImGuiRenderer::eventFilter(QObject *watched, QEvent *event)
     switch (event->type()) {
     case QEvent::MouseButtonPress:
     case QEvent::MouseButtonRelease:
+    case QEvent::MouseButtonDblClick: // MouseButtonDblClick *replaces* MouseButtonPress if you click too rapidly, so treat it like a MouseButtonPress
         this->onMousePressedChange(static_cast<QMouseEvent *>(event));
         break;
     case QEvent::Wheel:
@@ -448,9 +447,9 @@ bool ImGuiRenderer::eventFilter(QObject *watched, QEvent *event)
 
 ImGuiRenderer* ImGuiRenderer::instance(ImGuiRenderer* replace_instance, bool create) {
     static ImGuiRenderer* instance = nullptr;
-	if (replace_instance) {
-		instance = replace_instance;
-	} else if (create || (!instance)) {
+    if (replace_instance) {
+        instance = replace_instance;
+    } else if (create || (!instance)) {
         instance = new ImGuiRenderer();
     }
     return instance;

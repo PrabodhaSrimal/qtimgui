@@ -12,7 +12,8 @@ INCLUDEPATH += $$PWD/imgui $$PWD
 
 HEADERS += \
     $$PWD/ImGuiRenderer.h \
-    $$PWD/QtImGui.h
+    $$PWD/QtImGui.h \
+    $$PWD/QtKeyMappings.h \
     #$$PWD/imgui/imgui.h \
     #$$PWD/imgui/imconfig.h \
     #$$PWD/imgui/imgui_internal.h

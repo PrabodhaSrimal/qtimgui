@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include "imgui.h"
 #include <memory>
+#include <deque>
 
 class QMouseEvent;
 class QWheelEvent;
@@ -43,6 +44,15 @@ public:
 
     static ImGuiRenderer *instance(ImGuiRenderer* replace_instance = nullptr, bool create = false);
     void markFontsDirty() { g_FontsDirty = true; }
+    ~ImGuiRenderer() {
+        if (g_Initialised)
+        {
+            glDeleteBuffers(1, &g_VaoHandle);
+            glDeleteBuffers(1, &g_VboHandle);
+            glDeleteBuffers(1, &g_ElementsHandle);
+            glDeleteProgram(g_ShaderHandle);
+        }
+    }
 
 private:
     ImGuiRenderer() {}
@@ -57,18 +67,19 @@ private:
 
     std::unique_ptr<WindowWrapper> m_window;
     QElapsedTimer g_ElapsedTimer;
-    bool         g_MousePressed[3] = { false, false, false };
+    std::deque<bool> g_MousePressed[3] = { { false }, { false }, { false } };
     float        g_MouseWheel = 0;
     float        g_MouseWheelH = 0;
     GLuint       g_FontTexture = 0;
-    int          g_ShaderHandle = 0, g_VertHandle = 0, g_FragHandle = 0;
+    int          g_ShaderHandle = 0;
     int          g_AttribLocationTex = 0, g_AttribLocationProjMtx = 0;
     int          g_AttribLocationPosition = 0, g_AttribLocationUV = 0, g_AttribLocationColor = 0;
     unsigned int g_VboHandle = 0, g_VaoHandle = 0, g_ElementsHandle = 0;
-    std::vector<KeyEvent> g_KeyEvents;
+    std::vector<KeyEvent> g_KeyEvents[2];
     bool         g_TabKeyPressed = false;
     bool         g_Initialised = false;
     bool         g_FontsDirty = true;
+    std::atomic_bool g_KeyEventsBufferIndex = false;
 };
 
 }
